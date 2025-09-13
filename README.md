@@ -6,18 +6,24 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Build](https://github.com/PeiKeSmart/DHGoHttp/actions/workflows/build.yml/badge.svg)
 
-一个极简的跨平台文件目录 HTTP 服务器，主打“放到目录里就能直接下载”。在 Windows 下可自动尝试提权并添加防火墙放行规则，方便局域网或外部机器访问。
+一个极简的跨平台文件目录 HTTP 服务器，主打“放到目录里就能直接下载”。在 Windows 下可自动尝试提权并添加防火墙放行规则（并在退出时自动清理），同时保留原始工作目录避免提权后变成 `C:/Windows/System32`。
 
 ## 功能特性
 
-- 直接把当前工作目录作为静态文件根目录
+- 直接把当前工作目录作为静态文件根目录（或使用 `-dir` 指定）
 - 免配置启动：`go run .` 或构建后的可执行文件即可
+- 端口选择：`-port` / `PORT` 环境变量；若占用自动向上递增（默认最多 50 次，可用 `-max-port-scan` 调整）
+- 访问日志：输出客户端 IP / 方法 / 路径 / 状态码 / 字节数 / 耗时
+- 简单鉴权：`-token` 开启后需携带 `X-Token` 头或 `?token=` 查询参数
+- 只读模式：`-readonly` 禁止目录列表（防止暴露文件结构）
+- 自定义绑定地址：`-bind 127.0.0.1` 仅本机；默认 0.0.0.0 全网卡
+- 优雅退出：Ctrl+C / SIGTERM → 等待正在处理请求、删除本进程创建的防火墙规则
 - Windows：
-  - 自动检测是否管理员，若不是尝试触发 UAC 提升
-  - 管理员模式自动添加（且避免重复添加）防火墙入站规则：`DHGoHttp-<端口>`
-  - 已存在同名规则时不重复创建
-- 可使用 `PORT` 环境变量自定义监听端口（默认 8080）
-- 提供 `-no-firewall` 参数跳过提权与防火墙逻辑（便于快速本机调试）
+  - 自动检测是否管理员，若不是尝试触发 UAC 提升（UAC 允许后重新拉起自身并保持原工作目录）
+  - 自动添加（且避免重复添加）防火墙入站规则：`DHGoHttp-<端口>`
+  - 退出时若是本进程创建的规则则自动删除
+  - 提升后自动附加 `-dir <原目录>` 解决工作目录被切到 `System32` 问题
+- `-no-firewall` 跳过提权 & 防火墙逻辑（便于本地 / CI）
 
 ## 快速开始
 
@@ -44,7 +50,7 @@ go build -o dhgohttp.exe .
 ./dhgohttp.exe
 ```
 
-首次在 Windows 下非管理员运行时，会弹出 UAC 询问；同意后新进程（管理员）会添加防火墙规则并监听端口，原进程退出。
+首次在 Windows 下非管理员运行时，会弹出 UAC 询问；同意后新进程（管理员）会：保留原目录、添加防火墙规则、启动监听；原非管理员进程退出。
 
 ## 访问文件
 
@@ -87,6 +93,7 @@ curl -O http://localhost:8080/example-download.sh
 | `-bind` | 绑定地址（默认所有网卡 0.0.0.0） | `./dhgohttp.exe -bind 127.0.0.1` |
 | `-token` | 启用 Token 校验 (Header: X-Token 或 ?token=) | `./dhgohttp.exe -token SECRET123` |
 | `-readonly` | 禁止目录列出（仅按具体文件路径访问） | `./dhgohttp.exe -readonly` |
+| `-version` | 显示版本并退出 | `./dhgohttp.exe -version` |
 
 ## 环境变量
 
@@ -99,9 +106,10 @@ curl -O http://localhost:8080/example-download.sh
 ## Windows 防火墙与提权说明
 
 1. 非管理员运行会尝试 `ShellExecuteW` + `runas` 触发 UAC 提升。
-2. 若用户拒绝：继续普通权限运行，但不会自动添加防火墙放行规则，此时只能本机或已经被系统允许的网络访问。
-3. 防火墙规则名格式：`DHGoHttp-<端口号>`，例如：`DHGoHttp-8080`。
-4. 检查规则是否存在：
+2. 若用户拒绝：继续普通权限运行（不创建规则），只在已允许的范围可访问。
+3. 提升后自动追加 `-dir <原始绝对路径>`，避免工作目录变为 `C:/Windows/System32`。
+4. 防火墙规则名格式：`DHGoHttp-<端口号>`，例如：`DHGoHttp-8080`。
+5. 检查规则是否存在：
 
 ```powershell
 netsh advfirewall firewall show rule name="DHGoHttp-8080"
@@ -170,6 +178,20 @@ $env:PORT=9000; go run .
 已支持：`-dir` 指定目录；端口会自动递增寻找可用端口（日志会显示尝试序列）；`-readonly` 禁止列目录；`-token` 开启简单鉴权。
 
 ### 6. 如何优雅退出？
+ 
+### 7. 如何查看版本？
+
+```bash
+./dhgohttp.exe -version
+```
+
+可通过 Go 构建时使用：
+
+```bash
+go build -ldflags "-X main.version=0.3.0" -o dhgohttp.exe .
+```
+
+覆盖内置版本号。
 
 直接 Ctrl+C（或发送 SIGTERM）程序会：
 
@@ -192,15 +214,14 @@ $env:PORT=9000; go run .
 
 ## 后续可选增强方向
 
-- 访问日志 / 下载统计
-- 优雅退出删除防火墙规则（当前仅添加不删除）
-- 简单的只读 Token 访问控制
-- 目录访问控制（黑/白名单）
-- 多平台发布产物（在 CI 矩阵构建后生成）
+- 目录访问控制（黑/白名单 / 通配符）
+- 下载统计 / Prometheus 指标
+- 每文件校验 (hash) 列表输出
+- Web UI 浏览与搜索
 
 ## 版本与更新日志
 
-请查看 [CHANGELOG](./CHANGELOG.md)。当前初始版本：`0.1.0`。
+请查看 [CHANGELOG](./CHANGELOG.md)。当前版本（开发中）：`0.3.0-dev`。
 
 ## 许可证
 

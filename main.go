@@ -74,6 +74,22 @@ func addFirewallRule(port string) (ruleName string, created bool) {
 
 func main() {
 	// Flags
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "DHGoHttp v%s - 极简跨平台静态文件 HTTP 服务器\n\n", version)
+		fmt.Fprintf(os.Stderr, "用法: %s [flags]\n\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "  -port int\t指定监听端口 (优先于 PORT 环境变量)\n")
+		fmt.Fprintf(os.Stderr, "  -max-port-scan int\t端口占用递增最大尝试次数 (默认 50)\n")
+		fmt.Fprintf(os.Stderr, "  -dir string\t指定共享根目录 (默认为当前工作目录)\n")
+		fmt.Fprintf(os.Stderr, "  -bind string\t绑定地址 (默认 0.0.0.0; 为空表示所有网卡)\n")
+		fmt.Fprintf(os.Stderr, "  -token string\t访问需要携带的 Token (Header: X-Token 或查询参数 token)\n")
+		fmt.Fprintf(os.Stderr, "  -readonly\t只读模式：禁止目录列出\n")
+		fmt.Fprintf(os.Stderr, "  -no-firewall\t跳过自动防火墙规则与提权逻辑\n")
+		fmt.Fprintf(os.Stderr, "  -version\t显示版本并退出\n")
+		fmt.Fprintf(os.Stderr, "  (内部) -elevated\t内部使用的已提升标记，避免递归提权\n\n")
+		fmt.Fprintf(os.Stderr, "环境变量:\n  PORT\t指定监听端口 (被 -port 覆盖)\n\n")
+		fmt.Fprintf(os.Stderr, "示例:\n  %s -port 9000 -dir ./dist\n  PORT=9090 %s -readonly\n  %s -token SECRET -bind 127.0.0.1\n  %s -version\n\n", filepath.Base(os.Args[0]), filepath.Base(os.Args[0]), filepath.Base(os.Args[0]), filepath.Base(os.Args[0]))
+	}
 	noFirewall := flag.Bool("no-firewall", false, "跳过自动防火墙规则与提权逻辑")
 	elevatedFlag := flag.Bool("elevated", false, "(内部使用) 已提升标记")
 	portFlag := flag.Int("port", 0, "指定监听端口 (优先于 PORT 环境变量)")
@@ -82,7 +98,13 @@ func main() {
 	bindFlag := flag.String("bind", "", "绑定地址 (默认 0.0.0.0; 为空表示所有网卡)")
 	tokenFlag := flag.String("token", "", "访问需要携带的 Token (Header: X-Token 或查询参数 token)")
 	readonlyFlag := flag.Bool("readonly", false, "只读模式：禁止目录列出")
+	versionFlag := flag.Bool("version", false, "显示版本并退出")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("DHGoHttp %s\n", version)
+		return
+	}
 
 	// 获取根目录：优先使用 -dir
 	var rootDir string

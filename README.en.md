@@ -2,21 +2,26 @@
 
 [简体中文 README](./README.md)
 
-A minimal cross-platform directory HTTP file server. Drop it into a folder and instantly download files over HTTP. On Windows it can auto-elevate (UAC) and add a firewall inbound allow rule to make the port reachable from other machines. Now supports custom root, explicit port flag with auto-increment fallback, and adjustable scan range.
+A minimal cross-platform directory HTTP file server. Drop it into a folder and instantly download files over HTTP. On Windows it can auto-elevate (UAC) and add (and on shutdown remove) a firewall inbound allow rule, while preserving the original working directory (avoids falling back to `C:/Windows/System32` after elevation). Supports custom root, explicit port flag with auto-increment fallback, adjustable scan range, simple token auth, readonly mode, custom bind address and graceful shutdown.
 
 ## Features
 
 - Serve the current working directory as static files
 - Zero configuration: `go run .` or run the compiled binary
 - Windows specific:
-  - Detects non-admin and attempts UAC elevation
+  - Detects non-admin and attempts UAC elevation (relaunch preserves original working directory via injected `-dir`)
   - Adds (idempotently) a Windows Defender Firewall inbound rule: `DHGoHttp-<port>`
+  - Removes the rule automatically on graceful shutdown if this process created it
   - Skips creation if rule already exists
-- Override listen port via `-port` flag (preferred) or `PORT` environment variable (default start: 8080)
-- Auto-increment to the next free port if the chosen one is occupied (up to configurable attempts)
-- Change max scan attempts with `-max-port-scan` (default 50)
+- Override listen port via `-port` flag (preferred) or `PORT` env (default 8080)
+- Auto-increment to the next free port if the chosen one is occupied (configurable attempts via `-max-port-scan`)
 - Custom root directory via `-dir` (defaults to current working directory)
-- `-no-firewall` flag to skip elevation + firewall logic (ideal for local only)
+- Access logging (client IP / method / path / status / bytes / duration)
+- Simple token auth via `-token` (`X-Token` header or `?token=` query)
+- Readonly directory mode with `-readonly` (disables directory listing)
+- Custom bind address via `-bind` (e.g. `127.0.0.1` for loopback only)
+- Graceful shutdown: waits in-flight requests then removes firewall rule
+- `-no-firewall` flag to skip elevation + firewall logic (ideal for local / CI)
 
 ## Quick Start
 
@@ -43,7 +48,7 @@ go build -o dhgohttp.exe .
 ./dhgohttp.exe
 ```
 
-On first non-admin run (Windows) a UAC prompt appears; if accepted, an elevated process creates the firewall rule and starts the server; the original process exits.
+On first non-admin run (Windows) a UAC prompt appears; if accepted, an elevated process relaunches with the original working directory (via injected `-dir` if you didn't specify one), creates the firewall rule, then starts the server; the original process exits.
 
 ## Accessing Files
 
@@ -86,6 +91,7 @@ curl -O http://localhost:8080/example-download.sh
 | `-bind` | Bind address (default all interfaces) | `./dhgohttp.exe -bind 127.0.0.1` |
 | `-token` | Require shared token (X-Token header or ?token=) | `./dhgohttp.exe -token SECRET` |
 | `-readonly` | Disable directory listing | `./dhgohttp.exe -readonly` |
+| `-version` | Print version and exit | `./dhgohttp.exe -version` |
 
 ## Environment Variables
 
@@ -99,8 +105,9 @@ curl -O http://localhost:8080/example-download.sh
 
 1. Non-admin launch triggers `ShellExecuteW` + `runas` for UAC.
 2. If user cancels: continues normally (no firewall rule added) → only localhost / already allowed scopes.
-3. Rule name format: `DHGoHttp-<port>`, e.g. `DHGoHttp-8080`.
-4. Check rule existence:
+3. After elevation the original working directory is preserved (injects `-dir <abs>`) so file roots remain correct.
+4. Rule name format: `DHGoHttp-<port>`, e.g. `DHGoHttp-8080`.
+5. Check rule existence:
 
 ```powershell
 netsh advfirewall firewall show rule name="DHGoHttp-8080"
@@ -166,9 +173,23 @@ We check before creating—safe & idempotent.
 
 ### 5. Custom root / auto-increment / readonly / token?
 
-Implemented: `-dir` (custom root), auto-increment port, `-readonly` (blocks directory listing), `-token` (simple shared secret). Logs show attempted port sequence when fallback happens.
+Implemented: `-dir` (custom root), auto-increment port, `-readonly` (blocks directory listing), `-token` (simple shared secret), graceful shutdown firewall cleanup. Logs show attempted port sequence when fallback happens.
 
 ### 6. Graceful shutdown?
+ 
+### 7. Show version?
+
+```bash
+./dhgohttp.exe -version
+```
+
+Override at build time:
+
+```bash
+go build -ldflags "-X main.version=0.3.0" -o dhgohttp.exe .
+```
+
+This replaces the embedded dev version string.
 
 On Ctrl+C (SIGINT) or SIGTERM:
 
@@ -192,13 +213,16 @@ On Ctrl+C (SIGINT) or SIGTERM:
 
 ## Future Enhancements (Ideas)
 
-- Directory allow/deny filtering
-- Extended metrics (export Prometheus)
-- Optional per-file checksum endpoint
+- Directory allow/deny filtering (patterns)
+- Prometheus metrics / download counters
+- Per-file checksum endpoint (hash manifest)
+- Optional lightweight web UI browser
 
 ## License
 
 MIT License. See [LICENSE](./LICENSE).
+
+Current dev version: `0.3.0-dev` (see CHANGELOG for details).
 
 ---
 Feel free to open issues or request new features. 😊
