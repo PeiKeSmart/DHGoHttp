@@ -50,15 +50,18 @@ func addFirewallRule(port string) {
 		return
 	}
 	// Use netsh to add a firewall rule. This requires administrator privileges.
-	// Command: netsh advfirewall firewall add rule name="DHGoHttp-<port>" dir=in action=allow protocol=TCP localport=<port>
+	// Before adding, check if rule exists.
 	ruleName := "DHGoHttp-" + port
+	if firewallRuleExists(ruleName) {
+		log.Printf("[防火墙] 规则已存在，跳过创建: %s", ruleName)
+		return
+	}
 	cmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
 		"name="+ruleName, "dir=in", "action=allow", "protocol=TCP", "localport="+port)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		// If fails (likely no admin rights or rule exists), log and continue.
-		log.Printf("[防火墙] 添加规则失败(可能需要以管理员运行或已存在): %v, 输出: %s", err, string(output))
+		log.Printf("[防火墙] 添加规则失败: %v, 输出: %s", err, string(output))
 	} else {
-		log.Printf("[防火墙] 已尝试开放 TCP 端口 %s (规则: %s)", port, ruleName)
+		log.Printf("[防火墙] 已创建并开放 TCP 端口 %s (规则: %s)", port, ruleName)
 	}
 }
 
@@ -136,4 +139,23 @@ func tryElevate() bool {
 		return false
 	}
 	return true
+}
+
+// firewallRuleExists checks whether a firewall rule with the given name exists (Windows only).
+func firewallRuleExists(ruleName string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	cmd := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+ruleName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// netsh returns "No rules match the specified criteria." with exit code 1 (on some versions) when not found.
+		if strings.Contains(string(output), "No rules match") || strings.Contains(string(output), "找不到与指定条件匹配的规则") {
+			return false
+		}
+		// Other errors: assume not exist but log once (optional). For now just treat as not exist.
+		return false
+	}
+	// Heuristic: if output contains "Enabled:" we assume it's a valid rule dump.
+	return strings.Contains(string(output), "Enabled:")
 }
