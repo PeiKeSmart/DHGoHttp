@@ -81,8 +81,12 @@ curl -O http://localhost:8080/example-download.sh
 |------|------|------|
 | `-no-firewall` | 跳过自动提权 & 防火墙规则添加 | `./dhgohttp.exe -no-firewall` |
 | `-elevated` | 内部使用标记，防止重复提权 | （不手动使用） |
-| （规划中）`-port` | 指定端口（优先级高于 PORT 环境变量） | `./dhgohttp.exe -port 9000` |
-| （规划中）`-dir` | 指定共享根目录 | `./dhgohttp.exe -dir C:/Files` |
+| `-port` | 指定起始端口（优先级高于 PORT 环境变量；若被占用自动递增） | `./dhgohttp.exe -port 9000` |
+| `-dir` | 指定共享根目录（默认当前工作目录） | `./dhgohttp.exe -dir C:/Files` |
+| `-max-port-scan` | 端口占用递增最大尝试次数（默认 50） | `./dhgohttp.exe -port 9000 -max-port-scan 30` |
+| `-bind` | 绑定地址（默认所有网卡 0.0.0.0） | `./dhgohttp.exe -bind 127.0.0.1` |
+| `-token` | 启用 Token 校验 (Header: X-Token 或 ?token=) | `./dhgohttp.exe -token SECRET123` |
+| `-readonly` | 禁止目录列出（仅按具体文件路径访问） | `./dhgohttp.exe -readonly` |
 
 ## 环境变量
 
@@ -130,9 +134,17 @@ netsh advfirewall firewall delete rule name="DHGoHttp-8080"
 - 服务器监听的是默认 8080，检查是否被占用
 - 目标机器防火墙策略限制
 
-### 2. 如何指定端口？
+### 2. 如何指定端口？自动递增是怎样的？
 
-使用环境变量：
+方式一：使用 flag：
+
+```bash
+./dhgohttp.exe -port 9000
+```
+
+若 9000 被占用，会依次尝试 9001、9002 ...，最多尝试 `-max-port-scan` 次（默认 50）。
+
+方式二：使用环境变量：
 
 ```bash
 PORT=9000 go run .
@@ -153,9 +165,18 @@ $env:PORT=9000; go run .
 
 程序启动前会检测规则，存在就不再调用 `netsh`，避免多余日志。
 
-### 5. 能否支持自定义目录或自动递增端口？
+### 5. 自定义目录与自动递增端口支持了吗？
 
-当前未实现，可在后续版本中加入（见下文“后续增强”）。
+已支持：`-dir` 指定目录；端口会自动递增寻找可用端口（日志会显示尝试序列）；`-readonly` 禁止列目录；`-token` 开启简单鉴权。
+
+### 6. 如何优雅退出？
+
+直接 Ctrl+C（或发送 SIGTERM）程序会：
+
+1. 停止接受新连接
+2. 等待最多 5 秒处理中的请求
+3. 若本进程曾成功创建防火墙规则，则尝试删除该规则
+4. 输出退出日志后结束
 
 ## 代码结构
 
@@ -171,12 +192,11 @@ $env:PORT=9000; go run .
 
 ## 后续可选增强方向
 
-- 支持自定义根目录 `-dir`
-- 支持自定义端口参数 `-port`
-- 端口占用自动 +1 重试
 - 访问日志 / 下载统计
-- 优雅退出删除防火墙规则
+- 优雅退出删除防火墙规则（当前仅添加不删除）
 - 简单的只读 Token 访问控制
+- 目录访问控制（黑/白名单）
+- 多平台发布产物（在 CI 矩阵构建后生成）
 
 ## 版本与更新日志
 

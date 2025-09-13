@@ -2,7 +2,7 @@
 
 [简体中文 README](./README.md)
 
-A minimal cross-platform directory HTTP file server. Drop it into a folder and instantly download files over HTTP. On Windows it can auto-elevate (UAC) and add a firewall inbound allow rule to make the port reachable from other machines.
+A minimal cross-platform directory HTTP file server. Drop it into a folder and instantly download files over HTTP. On Windows it can auto-elevate (UAC) and add a firewall inbound allow rule to make the port reachable from other machines. Now supports custom root, explicit port flag with auto-increment fallback, and adjustable scan range.
 
 ## Features
 
@@ -12,7 +12,10 @@ A minimal cross-platform directory HTTP file server. Drop it into a folder and i
   - Detects non-admin and attempts UAC elevation
   - Adds (idempotently) a Windows Defender Firewall inbound rule: `DHGoHttp-<port>`
   - Skips creation if rule already exists
-- Override listen port via `PORT` environment variable (default: 8080)
+- Override listen port via `-port` flag (preferred) or `PORT` environment variable (default start: 8080)
+- Auto-increment to the next free port if the chosen one is occupied (up to configurable attempts)
+- Change max scan attempts with `-max-port-scan` (default 50)
+- Custom root directory via `-dir` (defaults to current working directory)
 - `-no-firewall` flag to skip elevation + firewall logic (ideal for local only)
 
 ## Quick Start
@@ -77,12 +80,18 @@ curl -O http://localhost:8080/example-download.sh
 |------|-------------|---------|
 | `-no-firewall` | Skip elevation & firewall rule creation | `./dhgohttp.exe -no-firewall` |
 | `-elevated` | Internal marker to prevent recursive elevation | (internal use) |
+| `-port` | Starting port (auto-increments if busy) | `./dhgohttp.exe -port 9000` |
+| `-dir` | Serve this directory instead of CWD | `./dhgohttp.exe -dir C:/Files` |
+| `-max-port-scan` | Max increment attempts to find free port | `./dhgohttp.exe -port 9000 -max-port-scan 30` |
+| `-bind` | Bind address (default all interfaces) | `./dhgohttp.exe -bind 127.0.0.1` |
+| `-token` | Require shared token (X-Token header or ?token=) | `./dhgohttp.exe -token SECRET` |
+| `-readonly` | Disable directory listing | `./dhgohttp.exe -readonly` |
 
 ## Environment Variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `PORT` | Listen port (no leading colon) | `PORT=9000 go run .` |
+| `PORT` | Starting listen port (used only if `-port` not given) | `PORT=9000 go run .` |
 
 > Note: Only specify the number. Code adds the leading `:` automatically.
 
@@ -124,7 +133,17 @@ netsh advfirewall firewall delete rule name="DHGoHttp-8080"
 - Default port 8080 already used
 - Network / firewall policy restrictions
 
-### 2. Custom port?
+### 2. Custom port & auto-increment?
+
+Option 1 (flag):
+
+```bash
+./dhgohttp.exe -port 9000
+```
+
+If 9000 is taken it will try 9001, 9002, ... until success or attempts exceed `-max-port-scan`.
+
+Option 2 (environment variable):
 
 ```bash
 PORT=9000 go run .
@@ -145,9 +164,18 @@ $env:PORT=9000; go run .
 
 We check before creating—safe & idempotent.
 
-### 5. Custom root / auto-increment port?
+### 5. Custom root / auto-increment / readonly / token?
 
-Not yet—planned (see Enhancements below).
+Implemented: `-dir` (custom root), auto-increment port, `-readonly` (blocks directory listing), `-token` (simple shared secret). Logs show attempted port sequence when fallback happens.
+
+### 6. Graceful shutdown?
+
+On Ctrl+C (SIGINT) or SIGTERM:
+
+1. Stop accepting new connections
+2. Allow up to 5s for in-flight requests
+3. If a firewall rule was created by this process it is removed
+4. Exit with a final log line
 
 ## Code Layout
 
@@ -164,16 +192,13 @@ Not yet—planned (see Enhancements below).
 
 ## Future Enhancements (Ideas)
 
-- `-dir` custom root
-- `-port` flag (instead of only env)
-- Auto-increment free port selection
-- Access log / download metrics
-- Graceful shutdown removing firewall rule
-- Simple read-only token auth
+- Directory allow/deny filtering
+- Extended metrics (export Prometheus)
+- Optional per-file checksum endpoint
 
 ## License
 
-Choose one (MIT / Apache-2.0 / BSD etc.). Not explicitly set yet.
+MIT License. See [LICENSE](./LICENSE).
 
 ---
 Feel free to open issues or request new features. 😊
