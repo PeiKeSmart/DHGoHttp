@@ -218,6 +218,8 @@ On Ctrl+C (SIGINT) or SIGTERM:
 - Per-file checksum endpoint (hash manifest)
 - Optional lightweight web UI browser
 
+See detailed planning in the [ROADMAP](./ROADMAP.md).
+
 ## License
 
 MIT License. See [LICENSE](./LICENSE).

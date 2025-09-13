@@ -219,6 +219,8 @@ go build -ldflags "-X main.version=0.3.0" -o dhgohttp.exe .
 - 每文件校验 (hash) 列表输出
 - Web UI 浏览与搜索
 
+更多规划请见 [ROADMAP](./ROADMAP.md)。
+
 ## 版本与更新日志
 
 请查看 [CHANGELOG](./CHANGELOG.md)。当前版本（开发中）：`0.3.0-dev`。
