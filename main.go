@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -66,6 +67,11 @@ func addFirewallRule(port string) {
 }
 
 func main() {
+	// Flags
+	noFirewall := flag.Bool("no-firewall", false, "跳过自动防火墙规则与提权逻辑")
+	elevatedFlag := flag.Bool("elevated", false, "(内部使用) 已提升标记")
+	flag.Parse()
+
 	// 获取当前工作目录作为根目录
 	rootDir, err := os.Getwd()
 	if err != nil {
@@ -88,18 +94,20 @@ func main() {
 		port = ":" + envPort
 	}
 
-	// Windows 下尝试提权（仅在非管理员时）
-	if runtime.GOOS == "windows" && !isAdmin() {
-		if tryElevate() {
-			// 子进程已启动(管理员)，当前非管理员进程直接退出避免端口冲突
-			log.Printf("已请求以管理员权限重新启动，当前进程退出。")
-			return
+	if *noFirewall {
+		log.Printf("[启动] 检测到 -no-firewall，跳过提权与防火墙规则创建。")
+	} else {
+		// Windows 下尝试提权（仅在非管理员且未带 -elevated 标记）
+		if runtime.GOOS == "windows" && !isAdmin() && !*elevatedFlag {
+			if tryElevate() {
+				log.Printf("已请求以管理员权限重新启动，当前进程退出。")
+				return
+			}
+			log.Printf("[权限] 用户可能取消了提权，继续以普通权限运行。")
 		}
-		log.Printf("[权限] 用户可能取消了提权，继续以普通权限运行。")
+		// 尝试开放 Windows 防火墙端口（非 Windows 忽略）
+		addFirewallRule(port)
 	}
-
-	// 尝试开放 Windows 防火墙端口（非 Windows 忽略）
-	addFirewallRule(port)
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
@@ -117,10 +125,7 @@ func tryElevate() bool {
 	wd := filepath.Dir(exe)
 	cwdPtr, _ := syscall.UTF16PtrFromString(wd)
 	// 传递一个标记参数避免递归无限提升
-	args := ""
-	if !strings.Contains(strings.Join(os.Args[1:], " "), "--elevated") {
-		args = "--elevated"
-	}
+	args := "-elevated"
 	argsPtr, _ := syscall.UTF16PtrFromString(args)
 
 	// Use ShellExecuteW (via windows.ShellExecute) but x/sys/windows does not wrap it, use syscall.Syscall6 on shell32.dll.
